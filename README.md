@@ -10,7 +10,7 @@ DataPorter provides resumable data loading for PyTorch training pipelines. When 
 
 - **Exact Resume**: Resume training from the precise sample where interrupted
 - **Memory Optimization**: Reduce memory usage by 50-87% with dtype conversions
-- **Multiple Strategies**: Simple, advanced, and distributed resumption strategies
+- **Multiple Strategies**: Simple, advanced, and distributed resumption strategies (all with minimal memory overhead)
 - **Drop-in Replacement**: Compatible with existing PyTorch DataLoader code
 - **Production Ready**: Battle-tested in large-scale training environments
 
@@ -208,24 +208,24 @@ Choose the appropriate strategy for your use case:
 from dataporter import create_resumable_dataloader
 
 # Simple Strategy (Default)
-# - Batch-level granularity
-# - Low memory overhead
-# - Best for most use cases
+# - Basic batch counting
+# - Minimal state tracking
+# - Suitable for prototyping
 dataloader = create_resumable_dataloader(
     dataset, 
     batch_size=32,
     strategy='simple'
 )
 
-# Advanced Strategy
-# - Sample-level granularity
-# - Handles variable-length sequences
-# - Higher memory overhead
+# Advanced Strategy (Recommended)
+# - Sophisticated epoch overflow handling
+# - Sample-level precision calculations
+# - Same memory overhead as simple strategy
+# - Production-ready with optimizations
 dataloader = create_resumable_dataloader(
     dataset,
     batch_size=32,
-    strategy='advanced',
-    track_samples=True  # Enable sample-level tracking
+    strategy='advanced'
 )
 
 # Distributed Strategy
@@ -240,6 +240,8 @@ dataloader = create_resumable_dataloader(
     world_size=world_size
 )
 ```
+
+**Note**: Both simple and advanced strategies have identical memory overhead (just a few integers). The difference is in the sophistication of the resumption logic, not memory usage.
 
 ### 4. Dataset Integration
 
