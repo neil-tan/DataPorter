@@ -34,10 +34,7 @@ import torch
 from torch.utils.data import DataLoader, Sampler
 from typing import Optional, Dict, Any, Iterator
 from .samplers import ResumableSampler, ResumableDistributedSampler
-from .strategies import (
-    ResumptionStrategy, SimpleResumptionStrategy, 
-    AdvancedResumptionStrategy, DistributedResumptionStrategy
-)
+from .strategies import ResumptionStrategy, UnifiedResumptionStrategy
 
 
 class _ResumableIter:
@@ -115,12 +112,9 @@ class ResumableDataLoader(DataLoader):
                 "or set distributed=False/None for automatic detection."
             )
         
-        # Auto-select strategy if not provided (default to AdvancedResumptionStrategy for backward compatibility)
+        # Always use UnifiedResumptionStrategy (auto-detects distributed)
         if resumption_strategy is None:
-            if distributed:
-                resumption_strategy = DistributedResumptionStrategy()
-            else:
-                resumption_strategy = AdvancedResumptionStrategy()
+            resumption_strategy = UnifiedResumptionStrategy()
         
         # Create resumable sampler if none provided
         if sampler is None and batch_sampler is None:
@@ -148,10 +142,9 @@ class ResumableDataLoader(DataLoader):
             
         super().__init__(**dataloader_kwargs, **kwargs)
         
-        # Initialize resumption strategy (for refactored architecture)
+        # Initialize resumption strategy
         self.resumption_strategy = resumption_strategy
         self.resumption_strategy.attach_dataloader(self)
-        self.resumption_strategy._distributed = distributed
         
         # Track batches and epochs (maintained for backward compatibility)
         self._batches_processed = 0
@@ -254,7 +247,7 @@ def create_resumable_dataloader(dataset, batch_size: int, shuffle: bool = True,
         num_workers: Number of worker processes (default: 0)
         pin_memory: Whether to pin memory for faster GPU transfer (default: True)
         drop_last: Whether to drop the last incomplete batch (default: False)
-        strategy: Strategy name ('simple', 'advanced', 'distributed', None for auto)
+        strategy: Deprecated parameter (kept for backward compatibility, ignored)
         distributed: Whether to use distributed training (default: None -> auto-detect)
         seed: Random seed for reproducible shuffling (default: None -> 42)
         **kwargs: Additional arguments passed to ResumableDataLoader
@@ -281,36 +274,17 @@ def create_resumable_dataloader(dataset, batch_size: int, shuffle: bool = True,
         >>> new_dataloader = create_resumable_dataloader(...)
         >>> new_dataloader.load_state_dict(state)
     """
-    # Select strategy based on name or auto-detect
-    if strategy == 'simple':
-        resumption_strategy = SimpleResumptionStrategy()
-    elif strategy == 'advanced':
-        resumption_strategy = AdvancedResumptionStrategy()  
-    elif strategy == 'distributed':
-        resumption_strategy = DistributedResumptionStrategy()
-    else:
-        # Auto-select strategy (default: advanced for backward compatibility)
-        if distributed is None:
-            distributed = torch.distributed.is_available() and torch.distributed.is_initialized()
-        elif distributed and not (torch.distributed.is_available() and torch.distributed.is_initialized()):
-            # Fail fast when distributed is explicitly requested but not available
-            raise RuntimeError(
-                "distributed=True was specified but distributed training is not initialized. "
-                "Either initialize distributed training with torch.distributed.init_process_group() "
-                "or set distributed=False/None for automatic detection."
-            )
-        
-        if distributed:
-            resumption_strategy = DistributedResumptionStrategy()
-        else:
-            # Default to AdvancedResumptionStrategy for full backward compatibility
-            resumption_strategy = AdvancedResumptionStrategy()
+    # Strategy parameter is deprecated - always use UnifiedResumptionStrategy
+    if strategy is not None:
+        import warnings
+        warnings.warn(
+            "The 'strategy' parameter is deprecated. ResumableDataLoader now automatically "
+            "detects the appropriate strategy based on your environment.",
+            DeprecationWarning,
+            stacklevel=2
+        )
     
-    # Create dataloader with explicit strategy - remove distributed param to avoid conflicts
-    dataloader_kwargs = kwargs.copy()
-    if 'resumption_strategy' not in dataloader_kwargs:
-        dataloader_kwargs['resumption_strategy'] = resumption_strategy
-    
+    # Create dataloader with unified strategy
     return ResumableDataLoader(
         dataset=dataset,
         batch_size=batch_size,
@@ -319,5 +293,6 @@ def create_resumable_dataloader(dataset, batch_size: int, shuffle: bool = True,
         pin_memory=pin_memory,
         drop_last=drop_last,
         seed=seed,
-        **dataloader_kwargs
+        distributed=distributed,
+        **kwargs
     )

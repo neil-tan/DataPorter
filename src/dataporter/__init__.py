@@ -11,8 +11,9 @@ from .wrappers import UnifiedHFDatasetWrapper
 from .samplers import ResumableSampler, ResumableDistributedSampler
 from .resumable import ResumableDataLoader, create_resumable_dataloader
 from .strategies import (
-    ResumptionStrategy, SimpleResumptionStrategy, 
-    AdvancedResumptionStrategy, DistributedResumptionStrategy
+    ResumptionStrategy, UnifiedResumptionStrategy,
+    # Backward compatibility aliases
+    SimpleResumptionStrategy, AdvancedResumptionStrategy, DistributedResumptionStrategy
 )
 
 __all__ = [
@@ -25,8 +26,10 @@ __all__ = [
     'ResumableDistributedSampler',
     'ResumableDataLoader',
     'create_resumable_dataloader',
-    # Strategy classes for advanced users
+    # Strategy classes
     'ResumptionStrategy',
+    'UnifiedResumptionStrategy',
+    # Backward compatibility
     'SimpleResumptionStrategy',
     'AdvancedResumptionStrategy', 
     'DistributedResumptionStrategy'
