@@ -46,9 +46,7 @@ src/dataporter/
 ├── resumable_dataloader.py  # Core ResumableDataLoader implementation
 ├── strategies/              # Resumption strategies
 │   ├── __init__.py
-│   ├── simple.py           # Simple batch-counting strategy
-│   ├── advanced.py         # Advanced sample-level strategy
-│   └── distributed.py      # Distributed training strategy
+│   └── strategies.py       # Unified resumption strategy
 ├── converters/             # Dtype conversion utilities
 │   ├── __init__.py
 │   └── dtype_converter.py  # Memory optimization converters
@@ -528,9 +526,8 @@ dataloader = create_resumable_dataloader(
 
 ## Performance Considerations
 
-- **Simple Strategy**: Negligible overhead, suitable for most cases
-- **Advanced Strategy**: ~5-10% overhead for sample tracking
-- **Distributed Strategy**: Minimal overhead with proper configuration
+- **Unified Strategy**: Negligible overhead, automatic environment detection
+- **Automatic Optimization**: Handles both single-node and distributed scenarios
 - **Memory Optimization**: Can reduce memory usage by 50-87%
 
 ## Dependencies

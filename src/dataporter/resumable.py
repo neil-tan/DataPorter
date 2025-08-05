@@ -247,7 +247,6 @@ def create_resumable_dataloader(dataset, batch_size: int, shuffle: bool = True,
         num_workers: Number of worker processes (default: 0)
         pin_memory: Whether to pin memory for faster GPU transfer (default: True)
         drop_last: Whether to drop the last incomplete batch (default: False)
-        strategy: Deprecated parameter (kept for backward compatibility, ignored)
         distributed: Whether to use distributed training (default: None -> auto-detect)
         seed: Random seed for reproducible shuffling (default: None -> 42)
         **kwargs: Additional arguments passed to ResumableDataLoader

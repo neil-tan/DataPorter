@@ -201,9 +201,3 @@ class UnifiedResumptionStrategy(ResumptionStrategy):
         self._epoch = epoch
         if self.dataloader and hasattr(self.dataloader.sampler, 'set_epoch'):
             self.dataloader.sampler.set_epoch(epoch)
-
-
-# Backward compatibility aliases (will be deprecated)
-SimpleResumptionStrategy = UnifiedResumptionStrategy
-AdvancedResumptionStrategy = UnifiedResumptionStrategy
-DistributedResumptionStrategy = UnifiedResumptionStrategy

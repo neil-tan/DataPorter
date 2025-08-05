@@ -198,31 +198,6 @@ class TestUnifiedResumptionStrategy:
         mock_sampler.set_epoch.assert_called_once_with(5)
 
 
-class TestBackwardCompatibility:
-    """Test backward compatibility with old strategy names."""
-    
-    def test_simple_strategy_alias(self):
-        """Test that SimpleResumptionStrategy is aliased to UnifiedResumptionStrategy."""
-        from dataporter.strategies import SimpleResumptionStrategy
-        
-        strategy = SimpleResumptionStrategy()
-        assert isinstance(strategy, UnifiedResumptionStrategy)
-    
-    def test_advanced_strategy_alias(self):
-        """Test that AdvancedResumptionStrategy is aliased to UnifiedResumptionStrategy."""
-        from dataporter.strategies import AdvancedResumptionStrategy
-        
-        strategy = AdvancedResumptionStrategy()
-        assert isinstance(strategy, UnifiedResumptionStrategy)
-    
-    def test_distributed_strategy_alias(self):
-        """Test that DistributedResumptionStrategy is aliased to UnifiedResumptionStrategy."""
-        from dataporter.strategies import DistributedResumptionStrategy
-        
-        strategy = DistributedResumptionStrategy()
-        assert isinstance(strategy, UnifiedResumptionStrategy)
-
-
 class TestResumableDataLoaderIntegration:
     """Test integration with ResumableDataLoader."""
     
@@ -233,31 +208,14 @@ class TestResumableDataLoaderIntegration:
         
         assert isinstance(dataloader.resumption_strategy, UnifiedResumptionStrategy)
     
-    def test_create_function_shows_deprecation_warning(self):
-        """Test that create_resumable_dataloader shows deprecation warning for strategy parameter."""
+    def test_create_function_uses_unified_strategy(self):
+        """Test that create_resumable_dataloader uses UnifiedResumptionStrategy."""
         dataset = DummyDataset(100)
         
-        with pytest.warns(DeprecationWarning, match="The 'strategy' parameter is deprecated"):
-            dataloader = create_resumable_dataloader(
-                dataset, 
-                batch_size=32,
-                strategy='simple'  # This should trigger warning
-            )
-        
-        # Should still work and use UnifiedResumptionStrategy
-        assert isinstance(dataloader.resumption_strategy, UnifiedResumptionStrategy)
-    
-    def test_create_function_no_warning_without_strategy(self):
-        """Test that no warning is shown when strategy parameter is not used."""
-        dataset = DummyDataset(100)
-        
-        # Should not produce any warnings
-        with warnings.catch_warnings():
-            warnings.simplefilter("error")  # Turn warnings into errors
-            dataloader = create_resumable_dataloader(
-                dataset,
-                batch_size=32
-            )
+        dataloader = create_resumable_dataloader(
+            dataset,
+            batch_size=32
+        )
         
         assert isinstance(dataloader.resumption_strategy, UnifiedResumptionStrategy)
     

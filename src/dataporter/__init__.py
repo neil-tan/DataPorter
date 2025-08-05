@@ -10,11 +10,7 @@ from .generic_wrapper import GenericDatasetWrapper, DataLoaderDtypeWrapper
 from .wrappers import UnifiedHFDatasetWrapper
 from .samplers import ResumableSampler, ResumableDistributedSampler
 from .resumable import ResumableDataLoader, create_resumable_dataloader
-from .strategies import (
-    ResumptionStrategy, UnifiedResumptionStrategy,
-    # Backward compatibility aliases
-    SimpleResumptionStrategy, AdvancedResumptionStrategy, DistributedResumptionStrategy
-)
+from .strategies import ResumptionStrategy, UnifiedResumptionStrategy
 
 __all__ = [
     'KeyBasedDtypeConverter',
@@ -28,9 +24,5 @@ __all__ = [
     'create_resumable_dataloader',
     # Strategy classes
     'ResumptionStrategy',
-    'UnifiedResumptionStrategy',
-    # Backward compatibility
-    'SimpleResumptionStrategy',
-    'AdvancedResumptionStrategy', 
-    'DistributedResumptionStrategy'
+    'UnifiedResumptionStrategy'
 ]
