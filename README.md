@@ -1,37 +1,63 @@
-# DataPorter 🚀
+# DataPorter
 
-PyTorch data loading utilities for seamless training resumption and memory optimization.
+PyTorch data loading utilities for seamless training resumption and memory optimization. A drop-in replacement for PyTorch DataLoader with checkpoint/resume capabilities.
 
-[![PyPI version](https://badge.fury.io/py/dataporter.svg)](https://badge.fury.io/py/dataporter)
-[![Python Version](https://img.shields.io/pypi/pyversions/dataporter.svg)](https://pypi.org/project/dataporter/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+## Overview
 
-## Why DataPorter?
-
-Training large models is expensive and time-consuming. When training gets interrupted (preemption, errors, or manual pauses), you shouldn't have to start over. DataPorter ensures you can resume training from the exact same data sample, maintaining reproducibility and saving valuable time and compute resources.
+DataPorter provides resumable data loading for PyTorch training pipelines. When training gets interrupted, DataPorter allows you to resume from the exact data sample, maintaining training continuity and reproducibility.
 
 ### Key Features
 
-- **🔄 Exact Resume**: Resume training from the exact sample where you left off
-- **💾 Memory Efficient**: Reduce memory usage by 50-87% with smart dtype conversions
-- **🎯 Strategy Pattern**: Choose between simple, advanced, or distributed resumption strategies
-- **🔧 Drop-in Replacement**: Works as a direct replacement for PyTorch's DataLoader
-- **⚡ Production Ready**: Battle-tested in large-scale training environments
+- **Exact Resume**: Resume training from the precise sample where interrupted
+- **Memory Optimization**: Reduce memory usage by 50-87% with dtype conversions
+- **Multiple Strategies**: Simple, advanced, and distributed resumption strategies
+- **Drop-in Replacement**: Compatible with existing PyTorch DataLoader code
+- **Production Ready**: Battle-tested in large-scale training environments
 
 ## Installation
 
+### As a Git Submodule
+
 ```bash
+# Add as submodule
+git submodule add https://github.com/neil-tan/DataPorter.git lib/DataPorter
+
+# Install in editable mode
+pip install -e lib/DataPorter/
+```
+
+### Direct Installation
+
+```bash
+# From PyPI (when available)
 pip install dataporter
+
+# From source
+git clone https://github.com/neil-tan/DataPorter.git
+cd DataPorter
+pip install -e .
 ```
 
-For development:
-```bash
-pip install dataporter[dev]
-```
+## Project Structure
 
-For examples with HuggingFace integration:
-```bash
-pip install dataporter[examples]
+```
+src/dataporter/
+├── __init__.py              # Package exports
+├── resumable_dataloader.py  # Core ResumableDataLoader implementation
+├── strategies/              # Resumption strategies
+│   ├── __init__.py
+│   ├── simple.py           # Simple batch-counting strategy
+│   ├── advanced.py         # Advanced sample-level strategy
+│   └── distributed.py      # Distributed training strategy
+├── converters/             # Dtype conversion utilities
+│   ├── __init__.py
+│   └── dtype_converter.py  # Memory optimization converters
+├── datasets/               # Dataset wrappers and utilities
+│   ├── __init__.py
+│   └── huggingface.py     # HuggingFace dataset integration
+└── utils/                  # Helper utilities
+    ├── __init__.py
+    └── state_dict.py      # State management utilities
 ```
 
 ## Quick Start
@@ -39,30 +65,45 @@ pip install dataporter[examples]
 ### Basic Usage
 
 ```python
-from dataporter import create_resumable_dataloader
+from dataporter import ResumableDataLoader, create_resumable_dataloader
+import torch
+from torch.utils.data import Dataset
 
-# Create a resumable dataloader - it's that simple!
-dataloader = create_resumable_dataloader(
-    dataset, 
+# Option 1: Direct instantiation
+dataloader = ResumableDataLoader(
+    dataset,
     batch_size=32,
-    shuffle=True
+    shuffle=True,
+    num_workers=4
 )
 
-# Training loop
+# Option 2: Factory function with strategy selection
+dataloader = create_resumable_dataloader(
+    dataset,
+    batch_size=32,
+    shuffle=True,
+    strategy='simple'  # or 'advanced', 'distributed'
+)
+
+# Use exactly like PyTorch DataLoader
 for epoch in range(num_epochs):
-    for batch in dataloader:
-        # Your training code here
-        optimizer.zero_grad()
+    dataloader.set_epoch(epoch)  # Important for shuffle reproducibility
+    
+    for batch_idx, batch in enumerate(dataloader):
+        # Your training code
         loss = model(batch)
+        optimizer.zero_grad()
         loss.backward()
         optimizer.step()
         
         # Save checkpoint with dataloader state
-        if step % save_interval == 0:
+        if batch_idx % save_interval == 0:
             torch.save({
                 'model': model.state_dict(),
                 'optimizer': optimizer.state_dict(),
-                'dataloader': dataloader.state_dict(),  # Save exact position
+                'dataloader': dataloader.state_dict(),  # Saves position
+                'epoch': epoch,
+                'batch_idx': batch_idx
             }, 'checkpoint.pt')
 ```
 
@@ -73,125 +114,443 @@ for epoch in range(num_epochs):
 checkpoint = torch.load('checkpoint.pt')
 model.load_state_dict(checkpoint['model'])
 optimizer.load_state_dict(checkpoint['optimizer'])
-dataloader.load_state_dict(checkpoint['dataloader'])  # Resume from exact position
 
-# Continue training from where you left off
-for batch in dataloader:
-    # Continues from the exact sample where it stopped
-    train_step(batch)
+# Create new dataloader and restore state
+dataloader = create_resumable_dataloader(
+    dataset,
+    batch_size=32,
+    shuffle=True,
+    strategy='simple'
+)
+dataloader.load_state_dict(checkpoint['dataloader'])  # Resume position
+
+# Continue from the exact batch
+start_epoch = checkpoint['epoch']
+for epoch in range(start_epoch, num_epochs):
+    dataloader.set_epoch(epoch)
+    
+    for batch in dataloader:
+        # Continues from the exact sample where interrupted
+        train_step(batch)
 ```
 
-## Advanced Features
+## Key Components
 
-### 1. Memory Optimization with Dtype Conversion
+### 1. ResumableDataLoader
 
-Reduce memory usage by up to 87% with intelligent dtype conversions:
+Core class providing checkpoint/resume functionality:
 
 ```python
-from dataporter import KeyBasedDtypeConverter
+from dataporter import ResumableDataLoader
 
-# Define conversion rules
+class ResumableDataLoader:
+    """Drop-in replacement for PyTorch DataLoader with resume capability."""
+    
+    def __init__(self, dataset, batch_size=1, shuffle=False, **kwargs):
+        # Accepts all standard DataLoader parameters
+        pass
+    
+    def state_dict(self) -> dict:
+        """Returns current position for checkpointing."""
+        return {
+            'epoch': self._epoch,
+            'batches_processed': self._batches_processed,
+            'samples_processed': self._samples_processed,
+            'rng_state': self._get_rng_state()  # For reproducibility
+        }
+    
+    def load_state_dict(self, state_dict: dict):
+        """Restores position from checkpoint."""
+        self._epoch = state_dict['epoch']
+        self._batches_processed = state_dict['batches_processed']
+        self._samples_processed = state_dict['samples_processed']
+        self._set_rng_state(state_dict['rng_state'])
+    
+    def set_epoch(self, epoch: int):
+        """Sets epoch for shuffle seed (important for reproducibility)."""
+        self._epoch = epoch
+```
+
+### 2. Memory Optimization
+
+Reduce memory usage with dtype conversions:
+
+```python
+from dataporter.converters import DtypeConverter, KeyBasedDtypeConverter
+
+# Simple converter for all tensors
+converter = DtypeConverter(dtype=torch.float16)
+
+# Key-based converter for structured data
 converter = KeyBasedDtypeConverter({
-    "inputs.image": "float16",           # Images to half precision (50% reduction)
-    "labels": "int32",                    # Labels from int64 to int32 (50% reduction)
-    "attention_mask": "uint8",            # Masks to uint8 (87.5% reduction!)
+    "image": "float16",         # 50% memory reduction
+    "label": "int32",           # 50% reduction from int64
+    "attention_mask": "uint8",  # 87.5% reduction from int64
+    "token_ids": "int32"        # 50% reduction
 })
 
-# Apply conversions
-batch = converter.convert_batch(batch)
+# Apply in dataset or collate function
+class OptimizedDataset(Dataset):
+    def __init__(self, base_dataset, converter):
+        self.dataset = base_dataset
+        self.converter = converter
+    
+    def __getitem__(self, idx):
+        item = self.dataset[idx]
+        return self.converter.convert_batch(item)
 ```
 
-### 2. Different Resumption Strategies
+### 3. Resumption Strategies
 
-Choose the strategy that fits your needs:
+Choose the appropriate strategy for your use case:
 
 ```python
-# Simple strategy - Low memory overhead, batch-level precision
-dataloader = create_resumable_dataloader(dataset, strategy='simple')
+from dataporter import create_resumable_dataloader
 
-# Advanced strategy - Sample-level precision, distributed training support
-dataloader = create_resumable_dataloader(dataset, strategy='advanced')
+# Simple Strategy (Default)
+# - Batch-level granularity
+# - Low memory overhead
+# - Best for most use cases
+dataloader = create_resumable_dataloader(
+    dataset, 
+    batch_size=32,
+    strategy='simple'
+)
 
-# Distributed strategy - Multi-GPU training with exact resume
-dataloader = create_resumable_dataloader(dataset, strategy='distributed')
+# Advanced Strategy
+# - Sample-level granularity
+# - Handles variable-length sequences
+# - Higher memory overhead
+dataloader = create_resumable_dataloader(
+    dataset,
+    batch_size=32,
+    strategy='advanced',
+    track_samples=True  # Enable sample-level tracking
+)
+
+# Distributed Strategy
+# - Multi-GPU training support
+# - Synchronized resume across ranks
+# - Handles data sharding
+dataloader = create_resumable_dataloader(
+    dataset,
+    batch_size=32,
+    strategy='distributed',
+    rank=rank,
+    world_size=world_size
+)
 ```
 
-### 3. Integration with HuggingFace Datasets
+### 4. Dataset Integration
+
+#### HuggingFace Datasets
 
 ```python
 from datasets import load_dataset
-from dataporter import UnifiedHFDatasetWrapper, create_resumable_dataloader
+from dataporter.datasets import HFDatasetWrapper
+from dataporter import create_resumable_dataloader
 
 # Load HuggingFace dataset
-hf_dataset = load_dataset("fashion_mnist", split="train")
+hf_dataset = load_dataset("imdb", split="train")
 
-# Wrap with dtype conversions
-dataset = UnifiedHFDatasetWrapper(
+# Wrap with memory optimization
+dataset = HFDatasetWrapper(
     hf_dataset,
     dtype_conversions={
-        "image": "float16",
-        "label": "int32"
+        "input_ids": "int32",      # Token IDs
+        "attention_mask": "uint8",  # Binary masks
+        "label": "int32"            # Labels
     }
 )
 
 # Create resumable dataloader
-dataloader = create_resumable_dataloader(dataset, batch_size=64)
+dataloader = create_resumable_dataloader(
+    dataset,
+    batch_size=16,
+    shuffle=True,
+    collate_fn=dataset.collate_fn  # Handles tokenization
+)
 ```
 
-## Memory Savings Examples
+#### Custom Datasets
 
-| Data Type | Original | Converted | Memory Saved |
-|-----------|----------|-----------|--------------|
-| Images | float32 | float16 | 50% |
-| Labels | int64 | int32 | 50% |
-| Attention Masks | int64 | uint8 | 87.5% |
-| Token IDs | int64 | int32 | 50% |
+```python
+class YourDataset(Dataset):
+    def __init__(self, data_path):
+        self.data = load_your_data(data_path)
+    
+    def __len__(self):
+        return len(self.data)
+    
+    def __getitem__(self, idx):
+        # Return your data sample
+        return {
+            'input': self.data[idx]['input'],
+            'target': self.data[idx]['target']
+        }
 
-## Architecture
-
-DataPorter uses a clean strategy pattern to separate concerns:
-
+# Works with any PyTorch dataset
+dataset = YourDataset('path/to/data')
+dataloader = create_resumable_dataloader(
+    dataset,
+    batch_size=32,
+    shuffle=True
+)
 ```
-ResumableDataLoader
-    ├── SimpleResumptionStrategy      # Batch counting, low overhead
-    ├── AdvancedResumptionStrategy    # Sample-level precision
-    └── DistributedResumptionStrategy # Multi-GPU support
+
+## API Reference
+
+### Core Classes
+
+#### ResumableDataLoader
+
+```python
+ResumableDataLoader(
+    dataset: Dataset,
+    batch_size: int = 1,
+    shuffle: bool = False,
+    sampler: Optional[Sampler] = None,
+    batch_sampler: Optional[Sampler] = None,
+    num_workers: int = 0,
+    collate_fn: Optional[Callable] = None,
+    pin_memory: bool = False,
+    drop_last: bool = False,
+    timeout: float = 0,
+    worker_init_fn: Optional[Callable] = None,
+    multiprocessing_context: Optional[str] = None,
+    generator: Optional[torch.Generator] = None,
+    prefetch_factor: int = 2,
+    persistent_workers: bool = False,
+    strategy: str = 'simple',
+    **strategy_kwargs
+)
 ```
 
-Each strategy handles:
-- State persistence and restoration
-- Iterator wrapping for resume capability
-- Distributed synchronization (if applicable)
+#### DtypeConverter
 
-## Examples
+```python
+DtypeConverter(dtype: Union[str, torch.dtype])
+# Converts all tensors to specified dtype
 
-Check out the `examples/` directory for:
-- [Basic resumable training](examples/basic_resume.py)
-- [Distributed training with exact resume](examples/distributed_training.py)
-- [Memory optimization techniques](examples/memory_optimization.py)
-- [HuggingFace integration](examples/huggingface_integration.py)
+KeyBasedDtypeConverter(conversions: Dict[str, Union[str, torch.dtype]])
+# Converts specific keys to specified dtypes
+```
 
-## Contributing
+### Memory Savings Reference
 
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+| Data Type | Original | Converted | Memory Saved | Use Case |
+|-----------|----------|-----------|--------------|----------|
+| Embeddings | float32 | float16 | 50% | Model inputs |
+| Images | float32 | float16 | 50% | Vision models |
+| Attention Masks | int64 | uint8 | 87.5% | Transformer masks |
+| Token IDs | int64 | int32 | 50% | NLP models |
+| Labels | int64 | int32 | 50% | Classification |
+| Positions | int64 | int16 | 75% | Positional encoding |
+
+## Common Use Cases
+
+### 1. Long-Running Training Jobs
+
+```python
+# Training script that can be safely interrupted
+from dataporter import create_resumable_dataloader
+import signal
+import sys
+
+def save_checkpoint(signum, frame):
+    """Save on interrupt"""
+    torch.save({
+        'model': model.state_dict(),
+        'optimizer': optimizer.state_dict(),
+        'dataloader': dataloader.state_dict(),
+        'epoch': epoch,
+        'global_step': global_step
+    }, 'interrupt_checkpoint.pt')
+    sys.exit(0)
+
+signal.signal(signal.SIGINT, save_checkpoint)
+
+# Training continues from interruption
+if os.path.exists('interrupt_checkpoint.pt'):
+    checkpoint = torch.load('interrupt_checkpoint.pt')
+    model.load_state_dict(checkpoint['model'])
+    optimizer.load_state_dict(checkpoint['optimizer'])
+    dataloader.load_state_dict(checkpoint['dataloader'])
+    start_epoch = checkpoint['epoch']
+    global_step = checkpoint['global_step']
+```
+
+### 2. Distributed Training
+
+```python
+import torch.distributed as dist
+from dataporter import create_resumable_dataloader
+
+# Initialize distributed training
+dist.init_process_group(backend='nccl')
+rank = dist.get_rank()
+world_size = dist.get_world_size()
+
+# Create distributed resumable dataloader
+dataloader = create_resumable_dataloader(
+    dataset,
+    batch_size=32,
+    shuffle=True,
+    strategy='distributed',
+    rank=rank,
+    world_size=world_size,
+    drop_last=True  # Recommended for distributed
+)
+
+# Each rank maintains its own state
+if rank == 0:
+    # Only rank 0 saves checkpoints
+    torch.save({
+        'dataloader': dataloader.state_dict(),
+        # ... other states
+    }, 'checkpoint.pt')
+```
+
+### 3. Memory-Constrained Environments
+
+```python
+from dataporter import create_resumable_dataloader
+from dataporter.converters import KeyBasedDtypeConverter
+
+# Define aggressive memory optimizations
+converter = KeyBasedDtypeConverter({
+    "pixel_values": "float16",     # Images
+    "input_ids": "int16",          # Token IDs (if vocab < 32k)
+    "attention_mask": "uint8",     # Binary masks
+    "token_type_ids": "uint8",     # Usually 0 or 1
+    "labels": "int16"              # Class labels
+})
+
+# Wrap dataset with converter
+class MemoryOptimizedDataset(Dataset):
+    def __init__(self, base_dataset, converter):
+        self.dataset = base_dataset
+        self.converter = converter
+    
+    def __getitem__(self, idx):
+        item = self.dataset[idx]
+        return self.converter.convert_batch(item)
+    
+    def __len__(self):
+        return len(self.dataset)
+
+optimized_dataset = MemoryOptimizedDataset(original_dataset, converter)
+dataloader = create_resumable_dataloader(
+    optimized_dataset,
+    batch_size=64,  # Can use larger batches with optimization
+    num_workers=4,
+    pin_memory=True
+)
+```
+
+## Integration with Training Frameworks
+
+### PyTorch Lightning
+
+```python
+import pytorch_lightning as pl
+from dataporter import create_resumable_dataloader
+
+class YourLightningModule(pl.LightningModule):
+    def train_dataloader(self):
+        return create_resumable_dataloader(
+            self.train_dataset,
+            batch_size=32,
+            shuffle=True,
+            num_workers=4
+        )
+    
+    def on_save_checkpoint(self, checkpoint):
+        # DataPorter state is saved automatically
+        if hasattr(self.trainer, 'train_dataloader'):
+            dataloader = self.trainer.train_dataloader
+            if hasattr(dataloader, 'state_dict'):
+                checkpoint['dataloader_state'] = dataloader.state_dict()
+    
+    def on_load_checkpoint(self, checkpoint):
+        # Restore will happen when dataloader is created
+        self._dataloader_state = checkpoint.get('dataloader_state', None)
+```
+
+### Integration with LightningReflow
+
+```python
+from dataporter import create_resumable_dataloader
+from lightning_reflow.callbacks import PauseCallback
+
+# DataPorter works seamlessly with LightningReflow's pause/resume
+trainer = pl.Trainer(
+    callbacks=[
+        PauseCallback(
+            checkpoint_dir="checkpoints",
+            enable_pause=True
+        )
+    ]
+)
+
+# Your dataloader state is automatically preserved
+dataloader = create_resumable_dataloader(
+    dataset,
+    batch_size=32,
+    shuffle=True
+)
+```
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Resume Position Incorrect**
+   - Ensure `set_epoch()` is called before iteration
+   - Check that the same `shuffle` setting is used
+   - Verify dataset hasn't changed between runs
+
+2. **Memory Not Reduced**
+   - Verify dtype conversions are applied
+   - Check that original data isn't kept in memory
+   - Use memory profiler to identify bottlenecks
+
+3. **Distributed Training Issues**
+   - Ensure all ranks load the same checkpoint
+   - Use `drop_last=True` for consistent batch sizes
+   - Verify proper rank/world_size initialization
+
+4. **State Dict Compatibility**
+   - Check DataPorter version compatibility
+   - Ensure strategy matches between save/load
+   - Verify dataset length hasn't changed
+
+## Performance Considerations
+
+- **Simple Strategy**: Negligible overhead, suitable for most cases
+- **Advanced Strategy**: ~5-10% overhead for sample tracking
+- **Distributed Strategy**: Minimal overhead with proper configuration
+- **Memory Optimization**: Can reduce memory usage by 50-87%
+
+## Dependencies
+
+- PyTorch >= 1.9
+- Python >= 3.7
+- numpy (for state management)
+- typing-extensions (for Python < 3.8)
 
 ## License
 
-DataPorter is released under the MIT License. See [LICENSE](LICENSE) for details.
+MIT License - See LICENSE file for details.
 
-## Citation
+## Contributing
 
-If you use DataPorter in your research, please cite:
-
-```bibtex
-@software{dataporter2024,
-  title = {DataPorter: PyTorch Data Loading Utilities for Seamless Training},
-  author = {Tan, Neil},
-  year = {2024},
-  url = {https://github.com/yourusername/dataporter}
-}
-```
+Contributions welcome! Please:
+- Add tests for new features
+- Update documentation
+- Follow existing code style
+- Submit PR with clear description
 
 ## Acknowledgments
 
-DataPorter was born from the Yggdrasil project, where the need for robust training resumption became critical for long-running experiments.
+DataPorter was developed as part of the Yggdrasil project to address the critical need for robust training resumption in long-running ML experiments.
