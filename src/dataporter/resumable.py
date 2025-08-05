@@ -32,9 +32,10 @@ Lightning Compatibility Requirements:
 
 import torch
 from torch.utils.data import DataLoader, Sampler
-from typing import Optional, Dict, Any, Iterator
+from typing import Optional, Dict, Any, Iterator, Union
 from .samplers import ResumableSampler, ResumableDistributedSampler
 from .strategies import ResumptionStrategy, UnifiedResumptionStrategy
+from .converters import KeyBasedDtypeConverter
 
 
 class _ResumableIter:
@@ -50,6 +51,9 @@ class _ResumableIter:
     def __next__(self):
         batch = next(self._iter)
         self._parent._batches_processed += 1
+        # Apply dtype conversions if converter is configured
+        if self._parent._converter is not None:
+            batch = self._parent._converter.convert_batch(batch)
         return batch
 
 
@@ -86,6 +90,8 @@ class ResumableDataLoader(DataLoader):
         persistent_workers: Whether to keep workers alive between epochs (default: False)
         distributed: Whether to use distributed training (default: None -> auto-detect)
         seed: Random seed for reproducible shuffling (default: None -> 42)
+        converter: KeyBasedDtypeConverter or dict mapping paths to dtypes (default: None)
+                   Can be either a converter instance or a dict like {"image": "float16"}
         **kwargs: Additional arguments passed to parent DataLoader
     """
     
@@ -99,6 +105,7 @@ class ResumableDataLoader(DataLoader):
                  # ResumableDataLoader specific
                  resumption_strategy: Optional[ResumptionStrategy] = None,
                  distributed: bool = None, seed: Optional[int] = None,
+                 converter: Optional[Union[KeyBasedDtypeConverter, Dict[str, str]]] = None,
                  **kwargs):
         
         # Auto-detect distributed training if not specified
@@ -150,6 +157,12 @@ class ResumableDataLoader(DataLoader):
         self._batches_processed = 0
         self._epoch = 0
         self._distributed = distributed
+        
+        # Initialize converter
+        if isinstance(converter, dict):
+            self._converter = KeyBasedDtypeConverter(converter)
+        else:
+            self._converter = converter
         
     def __iter__(self) -> _ResumableIter:
         """Return an iterator that updates batch progress on each step."""
@@ -230,7 +243,9 @@ def create_resumable_dataloader(dataset, batch_size: int, shuffle: bool = True,
                                drop_last: bool = False, 
                                strategy: Optional[str] = None,
                                distributed: Optional[bool] = None,
-                               seed: Optional[int] = None, **kwargs) -> ResumableDataLoader:
+                               seed: Optional[int] = None,
+                               converter: Optional[Union[KeyBasedDtypeConverter, Dict[str, str]]] = None,
+                               **kwargs) -> ResumableDataLoader:
     """
     Factory function to create a ResumableDataLoader with sample-level resumption.
     
@@ -249,6 +264,8 @@ def create_resumable_dataloader(dataset, batch_size: int, shuffle: bool = True,
         drop_last: Whether to drop the last incomplete batch (default: False)
         distributed: Whether to use distributed training (default: None -> auto-detect)
         seed: Random seed for reproducible shuffling (default: None -> 42)
+        converter: KeyBasedDtypeConverter or dict mapping paths to dtypes (default: None)
+                   Can be either a converter instance or a dict like {"image": "float16"}
         **kwargs: Additional arguments passed to ResumableDataLoader
     
     Returns:
@@ -293,5 +310,6 @@ def create_resumable_dataloader(dataset, batch_size: int, shuffle: bool = True,
         drop_last=drop_last,
         seed=seed,
         distributed=distributed,
+        converter=converter,
         **kwargs
     )

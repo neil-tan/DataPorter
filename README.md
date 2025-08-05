@@ -82,6 +82,17 @@ dataloader = create_resumable_dataloader(
     shuffle=True
 )
 
+# With memory optimization via dtype conversion
+dataloader = create_resumable_dataloader(
+    dataset,
+    batch_size=32,
+    converter={
+        'image': 'float16',      # 50% memory reduction
+        'label': 'int32',        # 50% reduction from int64
+        'mask': 'uint8'          # 87.5% reduction for binary masks
+    }
+)
+
 # Use exactly like PyTorch DataLoader
 for epoch in range(num_epochs):
     dataloader.set_epoch(epoch)  # Important for shuffle reproducibility
@@ -185,31 +196,42 @@ from dataporter.strategies import UnifiedResumptionStrategy
 
 ### 3. Memory Optimization
 
-Reduce memory usage with dtype conversions:
+Reduce memory usage with dtype conversions - now built into ResumableDataLoader:
 
 ```python
-from dataporter.converters import DtypeConverter, KeyBasedDtypeConverter
+# Direct converter in dataloader - NEW!
+dataloader = ResumableDataLoader(
+    dataset,
+    batch_size=32,
+    converter={
+        "image": "float16",         # 50% memory reduction
+        "label": "int32",           # 50% reduction from int64
+        "attention_mask": "uint8",  # 87.5% reduction from int64
+        "token_ids": "int32"        # 50% reduction
+    }
+)
 
-# Simple converter for all tensors
-converter = DtypeConverter(dtype=torch.float16)
+# Or use converter instance for more control
+from dataporter.converters import KeyBasedDtypeConverter
 
-# Key-based converter for structured data
 converter = KeyBasedDtypeConverter({
-    "image": "float16",         # 50% memory reduction
-    "label": "int32",           # 50% reduction from int64
-    "attention_mask": "uint8",  # 87.5% reduction from int64
-    "token_ids": "int32"        # 50% reduction
+    "image": "float16",
+    "metadata.weight": "float32"  # Nested paths supported
 })
 
-# Apply in dataset or collate function
-class OptimizedDataset(Dataset):
-    def __init__(self, base_dataset, converter):
-        self.dataset = base_dataset
-        self.converter = converter
-    
-    def __getitem__(self, idx):
-        item = self.dataset[idx]
-        return self.converter.convert_batch(item)
+dataloader = ResumableDataLoader(
+    dataset,
+    batch_size=32,
+    converter=converter
+)
+
+# Alternative: Wrap dataset (still supported)
+from dataporter import GenericDatasetWrapper
+
+wrapped_dataset = GenericDatasetWrapper(
+    base_dataset,
+    dtype_conversions={"image": "float16"}
+)
 ```
 
 ### 3. Automatic Strategy Selection
@@ -321,7 +343,10 @@ ResumableDataLoader(
     generator: Optional[torch.Generator] = None,
     prefetch_factor: int = 2,
     persistent_workers: bool = False,
-    # Automatic strategy selection based on environment
+    # ResumableDataLoader specific
+    converter: Optional[Union[KeyBasedDtypeConverter, Dict[str, str]]] = None,
+    seed: Optional[int] = None,
+    distributed: Optional[bool] = None  # Auto-detected if None
 )
 ```
 
@@ -414,36 +439,33 @@ if rank == 0:
 
 ```python
 from dataporter import create_resumable_dataloader
-from dataporter.converters import KeyBasedDtypeConverter
 
-# Define aggressive memory optimizations
-converter = KeyBasedDtypeConverter({
-    "pixel_values": "float16",     # Images
-    "input_ids": "int16",          # Token IDs (if vocab < 32k)
-    "attention_mask": "uint8",     # Binary masks
-    "token_type_ids": "uint8",     # Usually 0 or 1
-    "labels": "int16"              # Class labels
-})
-
-# Wrap dataset with converter
-class MemoryOptimizedDataset(Dataset):
-    def __init__(self, base_dataset, converter):
-        self.dataset = base_dataset
-        self.converter = converter
-    
-    def __getitem__(self, idx):
-        item = self.dataset[idx]
-        return self.converter.convert_batch(item)
-    
-    def __len__(self):
-        return len(self.dataset)
-
-optimized_dataset = MemoryOptimizedDataset(original_dataset, converter)
+# NEW: Direct converter support - no wrapper needed!
 dataloader = create_resumable_dataloader(
-    optimized_dataset,
+    dataset,
     batch_size=64,  # Can use larger batches with optimization
     num_workers=4,
-    pin_memory=True
+    pin_memory=True,
+    converter={
+        "pixel_values": "float16",     # Images (50% reduction)
+        "input_ids": "int16",          # Token IDs if vocab < 32k (75% reduction)
+        "attention_mask": "uint8",     # Binary masks (87.5% reduction)
+        "token_type_ids": "uint8",     # Usually 0 or 1 (87.5% reduction)
+        "labels": "int16"              # Class labels (75% reduction)
+    }
+)
+
+# Example with nested data structures
+dataloader = create_resumable_dataloader(
+    dataset,
+    batch_size=32,
+    converter={
+        "observation.image": "float16",    # Nested path support
+        "observation.depth": "float16",
+        "action": "float16",
+        "metadata.timestamp": "float32",
+        "done": "uint8"
+    }
 )
 ```
 
