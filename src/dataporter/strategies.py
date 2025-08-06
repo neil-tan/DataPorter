@@ -182,6 +182,11 @@ class UnifiedResumptionStrategy(ResumptionStrategy):
         """Update the sampler's resumption state."""
         sampler = self.dataloader.sampler
         
+        # First, load the full sampler state if available (includes seed)
+        if hasattr(sampler, 'load_state_dict') and 'sampler_state' in state_dict:
+            sampler.load_state_dict(state_dict['sampler_state'])
+        
+        # Then update specific fields for resumption position
         if isinstance(sampler, ResumableDistributedSampler):
             # Distributed sampler needs special handling
             sampler.start_sample = samples_to_skip
@@ -189,12 +194,9 @@ class UnifiedResumptionStrategy(ResumptionStrategy):
             sampler.start_epoch = epoch
             sampler.set_epoch(epoch)
         elif isinstance(sampler, ResumableSampler):
-            # Standard sampler
+            # Standard sampler - update position
             sampler.start_sample = samples_to_skip
             sampler.current_epoch = epoch
-        elif hasattr(sampler, 'load_state_dict') and 'sampler_state' in state_dict:
-            # Fallback for other samplers
-            sampler.load_state_dict(state_dict['sampler_state'])
     
     def set_epoch(self, epoch: int) -> None:
         """Set the current epoch (called by dataloader)."""

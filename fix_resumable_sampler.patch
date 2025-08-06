@@ -1,0 +1,15 @@
+--- a/src/dataporter/samplers.py
++++ b/src/dataporter/samplers.py
+@@ -115,7 +115,11 @@ class ResumableSampler(Sampler):
+         self.current_sample = state_dict.get('current_sample', 0)
+         # When resuming, we want to start from the next sample after the last processed one
+         self.start_sample = self.current_sample + 1 if self.current_sample >= 0 else 0
+-        self.base_seed = state_dict.get('base_seed', state_dict.get('seed', 42))  # Backward compatibility
++        # CRITICAL: Always restore the original seed to maintain deterministic shuffle order
++        # This ensures identical batch sequences between continuous and pause/resume runs
++        loaded_seed = state_dict.get('base_seed', state_dict.get('seed', None))
++        if loaded_seed is not None:
++            self.base_seed = loaded_seed
+         self.current_epoch = state_dict.get('current_epoch', 0)
+         self.shuffle = state_dict.get('shuffle', True)
+     

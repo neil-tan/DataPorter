@@ -115,9 +115,15 @@ class ResumableSampler(Sampler):
         self.current_sample = state_dict.get('current_sample', 0)
         # When resuming, we want to start from the next sample after the last processed one
         self.start_sample = self.current_sample + 1 if self.current_sample >= 0 else 0
-        self.base_seed = state_dict.get('base_seed', state_dict.get('seed', 42))  # Backward compatibility
+        # CRITICAL: Always restore the original seed to maintain deterministic shuffle order
+        # This ensures identical batch sequences between continuous and pause/resume runs
+        loaded_seed = state_dict.get('base_seed', state_dict.get('seed', None))
+        if loaded_seed is not None:
+            self.base_seed = loaded_seed
         self.current_epoch = state_dict.get('current_epoch', 0)
         self.shuffle = state_dict.get('shuffle', True)
+        # Reset generator to ensure it uses the loaded seed
+        self._generator = None
     
     def set_epoch(self, epoch: int) -> None:
         """Set the epoch for the sampler - called by DataLoader at start of each epoch."""
@@ -246,7 +252,13 @@ class ResumableDistributedSampler(DistributedSampler):
         self.current_sample = state_dict.get('current_sample', 0)
         self.start_sample = state_dict.get('start_sample', 0)
         self.start_epoch = state_dict.get('start_epoch', 0)
-        self.seed = state_dict.get('seed', 0)
+        # CRITICAL: Always restore the original seed to maintain deterministic shuffle order
+        loaded_seed = state_dict.get('seed', None)
+        if loaded_seed is not None:
+            self.seed = loaded_seed
+        # Reset generator to ensure it uses the loaded seed
+        self._generator = None
+        self._current_epoch = None
         
         # Verify distributed setup matches
         saved_rank = state_dict.get('rank')
